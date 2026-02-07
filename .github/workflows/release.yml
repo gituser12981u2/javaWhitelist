@@ -1,0 +1,48 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+
+      - name: Build + test + package
+        run: mvn -q test package
+
+      - name: Prepare release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+
+          # Pick the jar produced by Maven, after shade replace
+          JAR_PATH="$(ls -1 target/*.jar | head -n 1)"
+          OUT_JAR="javaWhitelist-${TAG}.jar"
+
+          cp "$JAR_PATH" "$OUT_JAR"
+          sha256sum "$OUT_JAR" > "${OUT_JAR}.sha256"
+
+          echo "OUT_JAR=$OUT_JAR" >> $GITHUB_ENV
+
+      - name: Create Github Release + upload assets 
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ env.OUT_JAR }}
+            ${{ env.out_JAR }}.sha256
+          generate_release_notes: true
+
