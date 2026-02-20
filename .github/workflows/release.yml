@@ -24,28 +24,9 @@ jobs:
         run: mvn -q test package
 
       - name: Prepare release assets
-        shell: bash
         run: |
-          set -euo pipefail
-
-          # Prefer the final jar
-          JAR_PATH="$(ls -1 target/*.jar \
-            | grep -v '^target/original-' \
-            | grep -v 'sources' \
-            | grep -v 'javadoc' \
-            | head -n 1)"
-
-          if [ -z "${JAR_PATH}" ]; then
-            echo "Could not find packaged jar in target/." >&2
-            ls -la target >&2 || true
-            exit 1
-          fi
-
-          OUT_JAR="javaWhitelist.jar"
-          cp "$JAR_PATH" "$OUT_JAR"
-          sha256sum "$OUT_JAR" > "${OUT_JAR}.sha256"
-
-          echo "OUT_JAR=$OUT_JAR" >> "$GITHUB_ENV"
+          cp target/javaWhitelist.jar javaWhitelist.jar
+          sha256sum javaWhitelist.jar > javaWhitelist.jar.sha256
 
       - name: Create GitHub Release + upload assets
         uses: softprops/action-gh-release@v2

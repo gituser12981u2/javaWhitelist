@@ -11,6 +11,7 @@ import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 
 public final class CheckerIntegrationTest {
+
     @Test
     public void allowsWhitelistedCalls() throws Exception {
         Path dir = Files.createTempDirectory("aw-good");
@@ -26,10 +27,19 @@ public final class CheckerIntegrationTest {
                         " }\n" +
                         "}\n");
 
+        String allow = "@ENFORCE_PREFIXES=java.,javax.\n" +
+                "\n" +
+                "java.lang.Object#<init>\n" +
+                "java.lang.String#length\n" +
+                "java.lang.System#out\n" +
+                "java.io.PrintStream#println\n";
+
+        Path allowFile = TestUtil.writeTempAllowlist(allow);
+
         ByteArrayOutputStream errBuf = new ByteArrayOutputStream();
         PrintStream err = new PrintStream(errBuf);
 
-        int code = AllowlistChecker.run(new String[] { f.toString() }, err);
+        int code = AllowlistChecker.run(new String[] { "--allowlist", allowFile.toString(), f.toString() }, err);
 
         assertEquals(0, code, "Expected success for whitelisted program. stderr:\n" +
                 errBuf);
@@ -50,10 +60,18 @@ public final class CheckerIntegrationTest {
                         " }\n" +
                         "}\n");
 
+        String allow = "@ENFORCE_PREFIXES=java.,javax.\n" +
+                "\n" +
+                "java.lang.Object#<init>\n" +
+                "java.lang.System#out\n" +
+                "java.io.PrintStream#println\n";
+
+        Path allowFile = TestUtil.writeTempAllowlist(allow);
+
         ByteArrayOutputStream errBuf = new ByteArrayOutputStream();
         PrintStream err = new PrintStream(errBuf);
 
-        int code = AllowlistChecker.run(new String[] { f.toString() }, err);
+        int code = AllowlistChecker.run(new String[] { "--allowlist", allowFile.toString(), f.toString() }, err);
 
         assertEquals(1, code, "Expected violation exit code. stderr:\n" + errBuf);
         assertTrue(errBuf.toString().contains("Disallowed API usage"),

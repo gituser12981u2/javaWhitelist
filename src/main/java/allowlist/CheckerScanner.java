@@ -1,21 +1,20 @@
 package allowlist;
 
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 
 import javax.lang.model.element.Element;
 import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.element.VariableElement;
-import javax.lang.model.type.DeclaredType;
 import javax.lang.model.type.TypeMirror;
+import javax.lang.model.util.Elements;
 import javax.lang.model.util.Types;
+import javax.management.openmbean.ArrayType;
 
 import com.sun.source.tree.BreakTree;
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.ContinueTree;
+import com.sun.source.tree.EnhancedForLoopTree;
 import com.sun.source.tree.ExpressionTree;
 import com.sun.source.tree.ImportTree;
 import com.sun.source.tree.LineMap;
@@ -40,6 +39,7 @@ public final class CheckerScanner extends TreePathScanner<Void, Void> {
     private final Trees trees;
     private final Types types;
     private final CompilationUnitTree cu;
+    private final Elements elements;
 
     private final List<String> violations;
     private final SourcePositions srcPos;
@@ -47,9 +47,11 @@ public final class CheckerScanner extends TreePathScanner<Void, Void> {
 
     private boolean inVoidMethod = false;
 
-    CheckerScanner(Trees trees, Types types, CompilationUnitTree cu, List<String> violations, AllowlistConfig config) {
+    CheckerScanner(Trees trees, Types types, Elements elements, CompilationUnitTree cu, List<String> violations,
+            AllowlistConfig config) {
         this.trees = trees;
         this.types = types;
+        this.elements = elements;
         this.cu = cu;
         this.violations = violations;
         this.srcPos = trees.getSourcePositions();
@@ -161,17 +163,16 @@ public final class CheckerScanner extends TreePathScanner<Void, Void> {
         }
 
         // If this is a member call like recv.method,
-        // allow if any receiver supertype is allowlisted
+        // allow only if the receiver's exact static type is allowlisted
         ExpressionTree select = node.getMethodSelect();
         if (select instanceof MemberSelectTree) {
             MemberSelectTree ms = (MemberSelectTree) select;
             ExpressionTree recvExpr = ms.getExpression();
 
             TypeMirror recvType = trees.getTypeMirror(new TreePath(getCurrentPath(), recvExpr));
-            for (String owner : receiverTypeHierarchyOwners(recvType)) {
-                if (config.isAllowed(owner, methodName)) {
-                    return super.visitMethodInvocation(node, p);
-                }
+            String recvOwner = erasedQualifiedName(recvType);
+            if (!recvOwner.isEmpty() && config.isAllowed(recvOwner, methodName)) {
+                return super.visitMethodInvocation(node, p);
             }
         }
 
@@ -229,6 +230,27 @@ public final class CheckerScanner extends TreePathScanner<Void, Void> {
         return super.visitLiteral(node, p);
     }
 
+    @Override
+    public Void visitEnhancedForLoop(EnhancedForLoopTree node, Void p) {
+        if (!config.disallowEnhancedForloopOverStackOrQueue()) {
+            return super.visitEnhancedForLoop(node, p);
+        }
+
+        ExpressionTree expr = node.getExpression();
+        TypeMirror tm = trees.getTypeMirror(new TreePath(getCurrentPath(), expr));
+
+        // Ignore Arrays
+        if (tm instanceof ArrayType) {
+            return super.visitEnhancedForLoop(node, p);
+        }
+
+        if (isSubtypeOfErased(tm, "java.util.Queue") || isExactlyErased(tm, "java.util.Stack")) {
+            addViolation(node, "Enhanced for-loop is not allowed over Queue/Stack.");
+        }
+
+        return super.visitEnhancedForLoop(node, p);
+    }
+
     private void addViolation(Tree node, String message) {
         long start = srcPos.getStartPosition(cu, node);
         LineMap lm = cu.getLineMap();
@@ -249,44 +271,42 @@ public final class CheckerScanner extends TreePathScanner<Void, Void> {
         return enclosing.toString();
     }
 
-    private List<String> receiverTypeHierarchyOwners(TypeMirror tm) {
-        List<String> owners = new ArrayList<>();
-        if (tm == null || !(tm instanceof DeclaredType)) {
-            return owners;
+    private String erasedQualifiedName(TypeMirror tm) {
+        if (tm == null) {
+            return "";
         }
 
-        // BFS over declared type and all supertypes
-        ArrayDeque<TypeMirror> deque = new ArrayDeque<>();
-        HashSet<String> seen = new HashSet<>();
-
-        deque.add(tm);
-
-        while (!deque.isEmpty()) {
-            TypeMirror cur = deque.removeFirst();
-            if (!(cur instanceof DeclaredType)) {
-                continue;
-            }
-
-            Element el = types.asElement(cur);
-            if (!(el instanceof TypeElement)) {
-                continue;
-            }
-
-            String qname = ((TypeElement) el).getQualifiedName().toString();
-            if (qname.equals("") || seen.contains(qname)) {
-                continue;
-            }
-
-            seen.add(qname);
-            owners.add(qname);
-
-            // Add direct supertypes
-            List<? extends TypeMirror> supers = types.directSupertypes(cur);
-            for (int i = 0; i < supers.size(); i++) {
-                deque.addLast(supers.get(i));
-            }
+        TypeMirror er = types.erasure(tm);
+        Element el = types.asElement(er);
+        if (el instanceof TypeElement) {
+            return ((TypeElement) el).getQualifiedName().toString();
         }
 
-        return owners;
+        return "";
+    }
+
+    private boolean isSubtypeOfErased(TypeMirror tm, String targetQname) {
+        if (tm == null) {
+            return false;
+        }
+
+        TypeElement target = elements.getTypeElement(targetQname);
+        if (target == null) {
+            return false;
+        }
+
+        TypeMirror lhs = types.erasure(tm);
+        TypeMirror rhs = types.erasure(target.asType());
+        return types.isSubtype(lhs, rhs);
+    }
+
+    private boolean isExactlyErased(TypeMirror tm, String targetQname) {
+        if (tm == null) {
+            return false;
+        }
+
+        TypeMirror er = types.erasure(tm);
+        Element el = types.asElement(er);
+        return (el instanceof TypeElement) && ((TypeElement) el).getQualifiedName().contentEquals(targetQname);
     }
 }

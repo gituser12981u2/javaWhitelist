@@ -1,11 +1,12 @@
 @ENFORCE_PREFIXES=java.,javax.
 
-@DISALLOW_NULL_LITERAL=true
+@DISALLOW_NULL_LITERAL=false
 @DISALLOW_RETURN_FROM_VOID=true
 @DISALLOW_BREAK=true
 @DISALLOW_CONTINUE=true
 @DISALLOW_SWITCH=true
 @DISALLOW_TRY=true
+@DISALLOW_ENHANCED_FORLOOP_OVER_STACK_OR_QUEUE=true
 @REQUIRE_WILDCARD_IMPORTS=true
 
 # For class initialization
@@ -15,10 +16,14 @@ java.lang.String#equals
 java.lang.String#equalsIgnoreCase
 java.lang.String#length
 java.lang.String#charAt
+java.lang.String#contains
+java.lang.String#valueOf
+java.lang.String#indexOf
 java.lang.String#toString
 
 java.lang.Integer#parseInt
 java.lang.Double#parseDouble
+java.lang.Double#toString
 
 java.util.Scanner#<init>
 java.util.Scanner#next
@@ -56,7 +61,6 @@ java.util.ArrayList#size
 java.util.ArrayList#isEmpty
 java.util.ArrayList#clear
 
-java.util.Queue#<init>
 java.util.Queue#add
 java.util.Queue#remove
 java.util.Queue#peek
@@ -97,7 +101,6 @@ java.util.Map#keySet
 java.util.Map#values
 java.util.Map#putAll
 java.util.Map#equals
-
 
 java.util.LinkedList#<init>
 java.lang.IllegalStateException#<init>

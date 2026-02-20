@@ -57,7 +57,7 @@ java.lang.String#length
 java.lang.Integer#parseInt
 ```
 
-`Supported settings:`
+Supported settings:
 - ENFORCE_PREFIXES
 - DISALLOW_NULL_LITERAL
 - DISALLOW_RETURN_FROM_VOID

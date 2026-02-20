@@ -1,24 +1,18 @@
 $ErrorActionPreference = "Stop"
 
-$Repo = "YOUR_USER/javaWhitelist"
+$Repo  = "gituser12981u2/javaWhitelist"
 $Asset = "javaWhitelist.jar"
 
-$Base = Join-Path $env:LOCALAPPDATA "javaWhitelist"
-$JarPath = Join-Path $Base "javaWhitelist.jar"
+$Base    = Join-Path $env:LOCALAPPDATA "javaWhitelist"
+$JarPath = Join-Path $Base $Asset
 $CmdPath = Join-Path $Base "javaWhitelist.cmd"
 
 New-Item -ItemType Directory -Force -Path $Base | Out-Null
 
-Write-Host "Downloading latest $Asset from $Repo..."
+$Url = "https://github.com/$Repo/releases/latest/download/$Asset"
 
-$rel = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest"
-$url = ($rel.assets | Where-Object { $_.name -eq $Asset } | Select-Object -First 1).browser_download_url
-
-if (-not $url) {
-  throw "Failed to locate release asset $Asset"
-}
-
-Invoke-WebRequest -Uri $url -OutFile $JarPath
+Write-Host "Downloading $Asset from $Url..."
+Invoke-WebRequest -Uri $Url -OutFile $JarPath
 
 @"
 @echo off

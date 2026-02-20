@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
+import javax.lang.model.util.Elements;
 import javax.lang.model.util.Types;
 import javax.tools.Diagnostic;
 import javax.tools.DiagnosticCollector;
@@ -44,7 +45,42 @@ public final class AllowlistChecker {
     private static final String DEFAULT_ALLOWLIST_RESOURCE = "allowlist.txt";
 
     public static void main(String[] args) throws IOException {
+        if (args.length == 0) {
+            printHelp();
+            System.exit(2);
+        }
+
+        if (args.length == 1) {
+            if (args[0].equals("--help") || args[0].equals("-h")) {
+                printHelp();
+                ;
+                System.exit(0);
+            }
+
+            if (args[0].equals("--version") || args[0].equals("-v")) {
+                System.out.println("javaWhitelist v" + version());
+                System.exit(0);
+            }
+        }
+
         System.exit(run(args, System.err));
+    }
+
+    private static void printHelp() {
+        System.out.println("javaWhitelist - Java API + style whitelist checker");
+        System.out.println();
+        System.out.println("Usage:");
+        System.out.println("  javaWhitelist [--allowlist path/to/allowlist.txt] <file-or-directory>...");
+        System.out.println();
+        System.out.println("Options:");
+        System.out.println("  --help, -h        Show this help message");
+        System.out.println("  --version, -v     Show version");
+        System.out.println("  --allowlist PATH  Use a custom allowlist file");
+        System.out.println();
+        System.out.println("Exit codes:");
+        System.out.println("  0  No violations");
+        System.out.println("  1  Violations found");
+        System.out.println("  2  Usage or internal error");
     }
 
     static int run(String[] args, PrintStream err) throws IOException {
@@ -126,11 +162,12 @@ public final class AllowlistChecker {
 
         Trees trees = Trees.instance(task);
         Types types = task.getTypes();
+        Elements elements = task.getElements();
 
         List<String> violations = new ArrayList<>();
 
         for (CompilationUnitTree cu : parsed) {
-            new CheckerScanner(trees, types, cu, violations, config).scan(cu, null);
+            new CheckerScanner(trees, types, elements, cu, violations, config).scan(cu, null);
         }
 
         for (Diagnostic<? extends JavaFileObject> d : diags.getDiagnostics()) {
@@ -147,6 +184,12 @@ public final class AllowlistChecker {
         }
 
         return 0;
+    }
+
+    private static String version() {
+        Package p = AllowlistChecker.class.getPackage();
+        String v = (p == null) ? null : p.getImplementationVersion();
+        return (v == null || v.isBlank()) ? "dev" : v;
     }
 
     private static void usageAndExit() {
@@ -175,4 +218,5 @@ public final class AllowlistChecker {
         String src = (d.getSource() == null) ? "<unknown>" : d.getSource().getName();
         return src + ":" + d.getLineNumber() + ":" + d.getColumnNumber() + ": " + d.getMessage(null);
     }
+
 }

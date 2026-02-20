@@ -58,6 +58,10 @@ public final class AllowlistConfig {
         return has(Setting.DISALLOW_TRY);
     }
 
+    public boolean disallowEnhancedForloopOverStackOrQueue() {
+        return has(Setting.DISALLOW_ENHANCED_FORLOOP_OVER_STACK_OR_QUEUE);
+    }
+
     public boolean requireWildcardImports() {
         return has(Setting.REQUIRE_WILDCARD_IMPORTS);
     }
