@@ -18,6 +18,7 @@ The default whitelist is setup for UW Seattle's CSE 122.
     - try/catch
     - return from void
     - package declarations
+    - enhanced for loop over Queues and Stacks
     - non-wildcard imports
     - null literal restriction
 - Fully configurable via allowlist.txt
@@ -38,12 +39,12 @@ iwr -useb https://raw.githubusercontent.com/gituser12981u2/javaWhitelist/main/in
 ## Usage
 
 ```bash
-java -jar javaWhitelist.jar [-allowlist allowlist.txt] <paths...>
+javaWhitelist [-allowlist allowlist.txt] <paths...>
 ```
 
-`Example`
+Example
 ```bash
-java -jar javaWhitelist.jar --allowlist allowlist.txt src/
+javaWhitelis --allowlist allowlist.txt src/
 ```
 
 ## Allowlist Configuration
@@ -65,6 +66,7 @@ Supported settings:
 - DISALLOW_CONTINUE
 - DISALLOW_SWITCH
 - DISALLOW_TRY
+- DISALLOW_ENHANCED_FORLOOP_OVER_STACK_OR_QUEUE
 - REQUIRE_WILDCARD_IMPORTS
 
 ## CI Integration Example 
