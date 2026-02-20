@@ -47,8 +47,6 @@ jobs:
           # Ensure job PATH has installed bin
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-          javaWhitelist --version
-
       # Windows run install.p1
       - name : Install (Windows)
         if: runner.os == 'Windows'
@@ -59,4 +57,17 @@ jobs:
           # Ensure job PATH has installed bin
           "$env:LOCALAPPDATA\javaWhitelist" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
+      - name: Smoke test (macOS/Linux)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v javaWhitelist
+          javaWhitelist --version
+
+      - name: Smoke test (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Get-Command javaWhitelist
           javaWhitelist --version
