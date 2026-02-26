@@ -28,7 +28,7 @@ import com.sun.source.util.Trees;
  * CLI entry point
  *
  * Usage:
- * java -jar javawhitelist-1.0.0 [--allowlist path/to/allowlist.txt] <.java file
+ * java -jar javaWhitelist-1.0.0 [--allowlist path/to/allowlist.txt] <.java file
  * or directory> ...
  *
  * Behavior:
@@ -75,7 +75,7 @@ public final class AllowlistChecker {
         System.out.println("Options:");
         System.out.println("  --help, -h        Show this help message");
         System.out.println("  --version, -v     Show version");
-        System.out.println("  --allowlist PATH  Use a custom allowlist file");
+        System.out.println("  --allowlist PATH  Use a custom allowlist file (overrides config lookup)");
         System.out.println();
         System.out.println("Exit codes:");
         System.out.println("  0  No violations");
@@ -115,7 +115,15 @@ public final class AllowlistChecker {
             if (allowlistPath != null) {
                 config = AllowlistLoader.loadFromFile(allowlistPath);
             } else {
-                config = AllowlistLoader.loadFromResource(DEFAULT_ALLOWLIST_RESOURCE);
+                String userHome = System.getProperty("user.home");
+                String osName = System.getProperty("os.name");
+
+                LoadSource src = resolveAllowlistSource(allowlistPath, osName, userHome);
+                if (src.isFile()) {
+                    config = AllowlistLoader.loadFromFile(src.filePath());
+                } else {
+                    config = AllowlistLoader.loadFromResource(src.resourceName());
+                }
             }
         } catch (FileNotFoundException e) {
             err.println("Allowlist file not found: " + allowlistPath);
@@ -192,6 +200,29 @@ public final class AllowlistChecker {
         return (v == null || v.isBlank()) ? "dev" : v;
     }
 
+    private static boolean isReadableFile(Path p) {
+        return p != null && Files.exists(p) && Files.isRegularFile(p) &&
+                Files.isReadable(p);
+    }
+
+    private static LoadSource resolveAllowlistSource(String explicitPath, String osName, String userHome) {
+        if (explicitPath != null) {
+            return LoadSource.file(explicitPath);
+        }
+
+        Path p1 = PathResolver.universalPath(userHome);
+        if (isReadableFile(p1)) {
+            return LoadSource.file(p1.toString());
+        }
+
+        Path p2 = PathResolver.osSpecificPath(osName, userHome, System.getenv());
+        if (isReadableFile(p2)) {
+            return LoadSource.file(p2.toString());
+        }
+
+        return LoadSource.resource(DEFAULT_ALLOWLIST_RESOURCE);
+    }
+
     private static void usageAndExit() {
         System.err.println(
                 "Usage: java allowlist.AllowlistChecker [--allowlist allowlist.txt] <.java file or directory> ...");
@@ -218,5 +249,4 @@ public final class AllowlistChecker {
         String src = (d.getSource() == null) ? "<unknown>" : d.getSource().getName();
         return src + ":" + d.getLineNumber() + ":" + d.getColumnNumber() + ": " + d.getMessage(null);
     }
-
 }
