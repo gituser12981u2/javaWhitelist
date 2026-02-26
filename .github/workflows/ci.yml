@@ -35,6 +35,10 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+          cache: maven
+
+      - name: Run tests
+        run: mvn -q test
 
       # Linux/macos run install.sh
       - name: Install (macOS/Linux)

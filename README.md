@@ -44,7 +44,7 @@ javaWhitelist [-allowlist allowlist.txt] <paths...>
 
 Example
 ```bash
-javaWhitelis --allowlist allowlist.txt src/
+javaWhitelist --allowlist allowlist.txt src/
 ```
 
 ## Allowlist Configuration
