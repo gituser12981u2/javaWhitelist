@@ -38,7 +38,7 @@ jobs:
           cache: maven
 
       - name: Run tests
-        run: mvn -q test
+        run: mvn -q verify 
 
       # Linux/macos run install.sh
       - name: Install (macOS/Linux)
