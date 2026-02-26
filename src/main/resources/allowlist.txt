@@ -19,6 +19,9 @@ java.lang.String#charAt
 java.lang.String#contains
 java.lang.String#valueOf
 java.lang.String#indexOf
+java.lang.String#substring
+java.lang.String#toUpperCase
+java.lang.String#toLowerCase
 java.lang.String#toString
 
 java.lang.Integer#parseInt
@@ -107,3 +110,8 @@ java.lang.IllegalStateException#<init>
 java.lang.IllegalArgumentException#<init>
 
 java.lang.Math#abs
+java.lang.Math#pow
+java.lang.Math#exp
+java.lang.Math#PI 
+java.lang.Math#e
+java.lang.Math#log
