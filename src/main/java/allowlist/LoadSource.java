@@ -6,7 +6,7 @@ package allowlist;
  * <p>An allowlist may be loaded either from:
  *
  * <ul>
- *   <li>a filesystem path or a classpath resource bundeled with the application.<\li>
+ *   <li>a filesystem path or a classpath resource bundled with the application.<\li>
  * </ul>
  *
  * <p>This is a small value object used to separate resolution from loading.

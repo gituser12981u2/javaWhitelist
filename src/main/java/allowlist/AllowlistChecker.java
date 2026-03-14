@@ -13,7 +13,9 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import javax.lang.model.util.Elements;
 import javax.lang.model.util.Types;
@@ -221,72 +223,95 @@ public final class AllowlistChecker {
       }
     }
 
+    // Group files by nearest pom.xml root
+    Map<Path, List<Path>> groups = new LinkedHashMap<>();
+    for (int i = 0; i < javaFiles.size(); i++) {
+      Path abs = javaFiles.get(i).toAbsolutePath().normalize();
+
+      Path root = findNearestPomRoot(abs);
+      groups.computeIfAbsent(root, k -> new ArrayList<>()).add(abs);
+    }
+
+    if (groups.isEmpty()) {
+      err.println("No .java files found after applying ignore rules.");
+      return 2;
+    }
+
     JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
     if (compiler == null) {
       err.println("No system Java compiler found.");
       return 2;
     }
 
-    DiagnosticCollector<JavaFileObject> diags = new DiagnosticCollector<>();
-    StandardJavaFileManager fm =
-        compiler.getStandardFileManager(diags, null, StandardCharsets.UTF_8);
-
-    Iterable<? extends JavaFileObject> units = fm.getJavaFileObjectsFromPaths(javaFiles);
-
-    // Avoid annotation processing
-    List<String> options = Arrays.asList("-proc:none");
-
-    JavacTask task = (JavacTask) compiler.getTask(null, fm, diags, options, null, units);
-
-    Iterable<? extends CompilationUnitTree> parsed;
-    try {
-      parsed = task.parse();
-      task.analyze();
-    } catch (IOException ex) {
-      err.println("Failed to parse/analyze sources: " + ex.getMessage());
-      return 2;
-    }
-
-    Trees trees = Trees.instance(task);
-    Types types = task.getTypes();
-    Elements elements = task.getElements();
-
     List<String> violations = new ArrayList<>();
+    boolean hadInternalFailure = false;
 
-    for (CompilationUnitTree cu : parsed) {
-      JavaFileObject src = cu.getSourceFile();
-      if (src != null) {
-        try {
-          Path srcPath = Paths.get(src.toUri()).toAbsolutePath().normalize();
-          if (ignoredAbs.contains(srcPath)) {
-            continue;
-          }
-        } catch (Exception ex) {
-          // If path cannot be resolved, then fall through and scan.
-        }
-      }
+    // Compile and scan each group separately
+    for (Map.Entry<Path, List<Path>> entry : groups.entrySet()) {
+      List<Path> groupFiles = entry.getValue();
 
-      new CheckerScanner(trees, types, elements, cu, violations, config).scan(cu, null);
-    }
+      DiagnosticCollector<JavaFileObject> diags = new DiagnosticCollector<>();
+      StandardJavaFileManager fm =
+          compiler.getStandardFileManager(diags, null, StandardCharsets.UTF_8);
 
-    for (Diagnostic<? extends JavaFileObject> d : diags.getDiagnostics()) {
-      if (d.getKind() != Diagnostic.Kind.ERROR) {
+      Iterable<? extends JavaFileObject> units = fm.getJavaFileObjectsFromPaths(groupFiles);
+
+      // Avoid annotation processing
+      List<String> options = Arrays.asList("-proc:none");
+
+      JavacTask task = (JavacTask) compiler.getTask(null, fm, diags, options, null, units);
+
+      Iterable<? extends CompilationUnitTree> parsed;
+      try {
+        parsed = task.parse();
+        task.analyze();
+      } catch (IOException ex) {
+        err.println("Failed to parse/analyze sources: " + ex.getMessage());
+        hadInternalFailure = true;
         continue;
       }
 
-      JavaFileObject src = d.getSource();
-      if (src != null) {
-        try {
-          Path srcPath = Paths.get(src.toUri()).toAbsolutePath().normalize();
-          if (ignoredAbs.contains(srcPath)) {
-            continue;
+      Trees trees = Trees.instance(task);
+      Types types = task.getTypes();
+      Elements elements = task.getElements();
+
+      for (CompilationUnitTree cu : parsed) {
+        JavaFileObject src = cu.getSourceFile();
+        if (src != null) {
+          try {
+            Path srcPath = Paths.get(src.toUri()).toAbsolutePath().normalize();
+            if (ignoredAbs.contains(srcPath)) {
+              continue;
+            }
+          } catch (Exception ex) {
+            // If path cannot be resolved, then fall through and scan.
           }
-        } catch (Exception ex) {
-          // ignore and print diagnostic
         }
+
+        new CheckerScanner(trees, types, elements, cu, violations, config).scan(cu, null);
       }
 
-      err.println("Compile error: " + formatDiagnostic(d));
+      for (Diagnostic<? extends JavaFileObject> d : diags.getDiagnostics()) {
+        if (d.getKind() != Diagnostic.Kind.ERROR) {
+          continue;
+        }
+
+        JavaFileObject src = d.getSource();
+        if (src != null) {
+          try {
+            Path srcPath = Paths.get(src.toUri()).toAbsolutePath().normalize();
+            if (ignoredAbs.contains(srcPath)) {
+              continue;
+            }
+          } catch (Exception ex) {
+            // ignore and print diagnostic
+          }
+        }
+
+        err.println("Warning: " + formatDiagnostic(d));
+      }
+
+      fm.close();
     }
 
     if (!violations.isEmpty()) {
@@ -294,6 +319,10 @@ public final class AllowlistChecker {
         err.println(violations.get(i));
       }
       return 1;
+    }
+
+    if (hadInternalFailure) {
+      return 2;
     }
 
     return 0;
@@ -401,5 +430,30 @@ public final class AllowlistChecker {
   private static String formatDiagnostic(Diagnostic<? extends JavaFileObject> d) {
     String src = (d.getSource() == null) ? "<unknown>" : d.getSource().getName();
     return src + ":" + d.getLineNumber() + ":" + d.getColumnNumber() + ": " + d.getMessage(null);
+  }
+
+  /**
+   * Finds the nearest ancestor directory (including the file's parent chain) that contains a
+   * pom.xml file.
+   *
+   * <p>If no pom.xml file is found, fallback to the file's immediate parent directory.
+   *
+   * @param file Java source file path.
+   * @return compilation group root for the file.
+   */
+  private static Path findNearestPomRoot(Path file) {
+    Path cur = file.toAbsolutePath().normalize();
+    if (!Files.isDirectory(cur)) {
+      cur = cur.getParent();
+    }
+
+    while (cur != null) {
+      if (Files.exists(cur.resolve("pom.xml")) && Files.isRegularFile(cur.resolve("pom.xml"))) {
+        return cur;
+      }
+      cur = cur.getParent();
+    }
+
+    return file.toAbsolutePath().normalize().getParent();
   }
 }
