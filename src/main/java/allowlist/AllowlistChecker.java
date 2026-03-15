@@ -1,30 +1,10 @@
 package allowlist;
 
-import com.sun.source.tree.CompilationUnitTree;
-import com.sun.source.util.JavacTask;
-import com.sun.source.util.Trees;
-import java.io.FileNotFoundException;
+import allowlist.cli.CliCommand;
+import allowlist.cli.CliOptions;
+import allowlist.cli.CliParser;
 import java.io.IOException;
 import java.io.PrintStream;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashSet;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import javax.lang.model.util.Elements;
-import javax.lang.model.util.Types;
-import javax.tools.Diagnostic;
-import javax.tools.DiagnosticCollector;
-import javax.tools.JavaCompiler;
-import javax.tools.JavaFileObject;
-import javax.tools.StandardJavaFileManager;
-import javax.tools.ToolProvider;
 
 /**
  * CLI entry point for the Java API and style whitelist checker.
@@ -38,6 +18,8 @@ import javax.tools.ToolProvider;
  *
  * <ol>
  *   <li>If {@code --allowlist PATH} is provided, that file is used.
+ *   <li>Otherwise, starting from the nearest project root (nearest ancestor containing {@code
+ *       pom.xml}), search upward for the first {@code allowlist.txt}. The first match is used.
  *   <li>Otherwise, check the universal path {@code ~/.config/javaWhitelist/allowlist.txt} (all
  *       OSes).
  *   <li>Otherwise, check the OS-specific config path:
@@ -49,6 +31,9 @@ import javax.tools.ToolProvider;
  *       </ul>
  *   <li>Otherwise, fallback to the bundled classpath resource {@code allowlist.txt}.
  * </ol>
+ *
+ * <p>When scanning multiple Maven modules, resolution is performed per compilation group. A
+ * module-local {@code allowlist.txt} overrides a parent/root {@code allowlist.txt}
  *
  * <h3>Ignore file</h3>
  *
@@ -74,386 +59,26 @@ import javax.tools.ToolProvider;
  */
 public final class AllowlistChecker {
 
-  /** Default bundled resource name used when no config file is found. */
-  private static final String DEFAULT_ALLOWLIST_RESOURCE = "allowlist.txt";
-
   public static void main(String[] args) throws IOException {
-    if (args.length == 0) {
-      printHelp();
+    try {
+      CliCommand command = CliParser.parse(args);
+      int exitCode = command.execute(CliApplication.createContext(System.out, System.err));
+      System.exit(exitCode);
+    } catch (IllegalArgumentException e) {
+      System.err.println(e.getMessage());
+      System.err.print(CliApplication.helpText());
       System.exit(2);
     }
-
-    if (args.length == 1) {
-      if (args[0].equals("--help") || args[0].equals("-h")) {
-        printHelp();
-        System.exit(0);
-      }
-
-      if (args[0].equals("--version") || args[0].equals("-v")) {
-        System.out.println("javaWhitelist v" + version());
-        System.exit(0);
-      }
-    }
-
-    System.exit(run(args, System.err));
   }
 
-  private static void printHelp() {
-    System.out.println("javaWhitelist - Java API + style whitelist checker");
-    System.out.println();
-    System.out.println("Usage:");
-    System.out.println(
-        "  javaWhitelist [--allowlist path/to/allowlist.txt] <file-or-directory>...");
-    System.out.println();
-    System.out.println("Options:");
-    System.out.println("  --help, -h        Show this help message");
-    System.out.println("  --version, -v     Show version");
-    System.out.println("  --allowlist PATH  Use a custom allowlist file (overrides config lookup)");
-    System.out.println(
-        "  --ignore PATH    Ignore file (overrides default .javawhitelistignore lookup)");
-    System.out.println();
-    System.out.println("Exit codes:");
-    System.out.println("  0  No violations");
-    System.out.println("  1  Violations found");
-    System.out.println("  2  Usage or internal error");
+  static int run(CliOptions options, PrintStream err) throws IOException {
+    return newCheckRunner().run(options, err);
   }
 
-  /**
-   * Runs the checker and returns the process exit code.
-   *
-   * @param args CLI arguments.
-   * @param err output stream used for diagnostics.
-   * @return exit code (0/1/2).
-   * @throws IOException if file traversal or compiler I/O fails.
-   */
-  static int run(String[] args, PrintStream err) throws IOException {
-    if (args.length < 1) {
-      usageAndExit();
-    }
-
-    String allowlistPath = null;
-    String ignorePath = null;
-    List<String> targetPaths = new ArrayList<>();
-
-    // Parse args: --allowlist <path> (optional)
-    // remaining args are target paths (files/dirs)
-    for (int i = 0; i < args.length; i++) {
-      if (args[i].equals("--allowlist")) {
-        if (i + 1 >= args.length) {
-          usageAndExit();
-        }
-
-        allowlistPath = args[i + 1];
-        i++;
-      } else if (args[i].equals("--ignore")) {
-        if (i + 1 >= args.length) {
-          usageAndExit();
-        }
-
-        ignorePath = args[i + 1];
-        i++;
-      } else {
-        targetPaths.add(args[i]);
-      }
-    }
-
-    if (targetPaths.isEmpty()) {
-      usageAndExit();
-    }
-
-    Path cwd = Paths.get("").toAbsolutePath().normalize();
-    IgnoreMatcher ignores = IgnoreMatcher.empty(cwd);
-
-    // Resolve ignore file with CWD default, unless --ignore
-    Path ignoreFile = null;
-    if (ignorePath != null) {
-      ignoreFile = Paths.get(ignorePath);
-    } else {
-      Path defaultIgnore = cwd.resolve(".javawhitelistignore");
-      if (Files.exists(defaultIgnore) && Files.isRegularFile(defaultIgnore)) {
-        ignoreFile = defaultIgnore;
-      }
-    }
-
-    if (ignoreFile != null) {
-      try {
-        ignores = IgnoreMatcher.fromFile(ignoreFile);
-      } catch (IOException e) {
-        err.println("Failed to read ignore file: " + ignoreFile + ": " + e.getMessage());
-        return 2;
-      }
-    }
-
-    AllowlistConfig config;
-    try {
-      // Resolve allowlist source
-      String userHome = System.getProperty("user.home");
-      String osName = System.getProperty("os.name");
-      LoadSource src = resolveAllowlistSource(allowlistPath, osName, userHome);
-
-      if (src.isFile()) {
-        config = AllowlistLoader.loadFromFile(src.filePath());
-      } else {
-        config = AllowlistLoader.loadFromResource(src.resourceName());
-      }
-    } catch (FileNotFoundException e) {
-      err.println("Allowlist file not found: " + allowlistPath);
-      return 2;
-    } catch (IOException e) {
-      err.println("Failed to load allowlist: " + e.getMessage());
-      return 2;
-    }
-
-    List<Path> javaFiles = new ArrayList<>();
-    for (int i = 0; i < targetPaths.size(); i++) {
-      collectJavaFiles(Paths.get(targetPaths.get(i)), javaFiles);
-    }
-
-    if (javaFiles.isEmpty()) {
-      err.println("No .java files found in the provided paths.");
-      return 2;
-    }
-
-    // Precompute ignored set
-    Set<Path> ignoredAbs = new HashSet<>();
-    for (int i = 0; i < javaFiles.size(); i++) {
-      Path f = javaFiles.get(i).toAbsolutePath().normalize();
-      if (ignores != null && ignores.isIgnored(f)) {
-        ignoredAbs.add(f);
-      }
-    }
-
-    // Group files by nearest pom.xml root
-    Map<Path, List<Path>> groups = new LinkedHashMap<>();
-    for (int i = 0; i < javaFiles.size(); i++) {
-      Path abs = javaFiles.get(i).toAbsolutePath().normalize();
-
-      Path root = findNearestPomRoot(abs);
-      groups.computeIfAbsent(root, k -> new ArrayList<>()).add(abs);
-    }
-
-    if (groups.isEmpty()) {
-      err.println("No .java files found after applying ignore rules.");
-      return 2;
-    }
-
-    JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
-    if (compiler == null) {
-      err.println("No system Java compiler found.");
-      return 2;
-    }
-
-    List<String> violations = new ArrayList<>();
-    boolean hadInternalFailure = false;
-
-    // Compile and scan each group separately
-    for (Map.Entry<Path, List<Path>> entry : groups.entrySet()) {
-      List<Path> groupFiles = entry.getValue();
-
-      DiagnosticCollector<JavaFileObject> diags = new DiagnosticCollector<>();
-      StandardJavaFileManager fm =
-          compiler.getStandardFileManager(diags, null, StandardCharsets.UTF_8);
-
-      Iterable<? extends JavaFileObject> units = fm.getJavaFileObjectsFromPaths(groupFiles);
-
-      // Avoid annotation processing
-      List<String> options = Arrays.asList("-proc:none");
-
-      JavacTask task = (JavacTask) compiler.getTask(null, fm, diags, options, null, units);
-
-      Iterable<? extends CompilationUnitTree> parsed;
-      try {
-        parsed = task.parse();
-        task.analyze();
-      } catch (IOException ex) {
-        err.println("Failed to parse/analyze sources: " + ex.getMessage());
-        hadInternalFailure = true;
-        continue;
-      }
-
-      Trees trees = Trees.instance(task);
-      Types types = task.getTypes();
-      Elements elements = task.getElements();
-
-      for (CompilationUnitTree cu : parsed) {
-        JavaFileObject src = cu.getSourceFile();
-        if (src != null) {
-          try {
-            Path srcPath = Paths.get(src.toUri()).toAbsolutePath().normalize();
-            if (ignoredAbs.contains(srcPath)) {
-              continue;
-            }
-          } catch (Exception ex) {
-            // If path cannot be resolved, then fall through and scan.
-          }
-        }
-
-        new CheckerScanner(trees, types, elements, cu, violations, config).scan(cu, null);
-      }
-
-      for (Diagnostic<? extends JavaFileObject> d : diags.getDiagnostics()) {
-        if (d.getKind() != Diagnostic.Kind.ERROR) {
-          continue;
-        }
-
-        JavaFileObject src = d.getSource();
-        if (src != null) {
-          try {
-            Path srcPath = Paths.get(src.toUri()).toAbsolutePath().normalize();
-            if (ignoredAbs.contains(srcPath)) {
-              continue;
-            }
-          } catch (Exception ex) {
-            // ignore and print diagnostic
-          }
-        }
-
-        err.println("Warning: " + formatDiagnostic(d));
-      }
-
-      fm.close();
-    }
-
-    if (!violations.isEmpty()) {
-      for (int i = 0; i < violations.size(); i++) {
-        err.println(violations.get(i));
-      }
-      return 1;
-    }
-
-    if (hadInternalFailure) {
-      return 2;
-    }
-
-    return 0;
-  }
-
-  /**
-   * Returns the implementation version from the JAR manifest when available.
-   *
-   * @return version string of {@code "dev"} if unavailable.
-   */
-  private static String version() {
-    Package p = AllowlistChecker.class.getPackage();
-    String v = (p == null) ? null : p.getImplementationVersion();
-    return (v == null || v.isBlank()) ? "dev" : v;
-  }
-
-  /**
-   * Checks whether a path is an existing, readable regular file.
-   *
-   * @param p candidate path
-   * @return true if {@code p} exists, is a regular file, and is readable.
-   */
-  private static boolean isReadableFile(Path p) {
-    return p != null && Files.exists(p) && Files.isRegularFile(p) && Files.isReadable(p);
-  }
-
-  /**
-   * Resolves which allowlist source to load, based on CLI and config lookup.
-   *
-   * <p>Precedence:
-   *
-   * <ol>
-   *   <li>Explicit CLI path
-   *   <li>Universal config path ({@code ~/.config/...})
-   *   <li>OS specific config path
-   *   <li>Bundled resource
-   * </ol>
-   *
-   * @param explicitPath allowlist path from {@code --allowlist}, or {@code null}.
-   * @param osName OS name.
-   * @param userHome home directory.
-   * @return resolved load source (file or resource).
-   */
-  private static LoadSource resolveAllowlistSource(
-      String explicitPath, String osName, String userHome) {
-    if (explicitPath != null) {
-      return LoadSource.file(explicitPath);
-    }
-
-    Path p1 = PathResolver.universalPath(userHome);
-    if (isReadableFile(p1)) {
-      return LoadSource.file(p1.toString());
-    }
-
-    Path p2 = PathResolver.osSpecificPath(osName, userHome, System.getenv());
-    if (isReadableFile(p2)) {
-      return LoadSource.file(p2.toString());
-    }
-
-    return LoadSource.resource(DEFAULT_ALLOWLIST_RESOURCE);
-  }
-
-  /** Prints usage and terminates the process with exit code 2. */
-  private static void usageAndExit() {
-    System.err.println(
-        "Use java allowlist.AllowlistChecker [--allowlist allowlist.txt] <file or directory> ...");
-    System.exit(2);
-  }
-
-  /**
-   * Collects all {@code .java} files beneath a path into {@code out}.
-   *
-   * @param p file or directory to scan.
-   * @param out output list of java source file paths.
-   * @throws IOException on I/O error while walking the file tree.
-   */
-  private static void collectJavaFiles(Path p, List<Path> out) throws IOException {
-    if (!Files.exists(p)) {
-      return;
-    }
-
-    if (Files.isDirectory(p)) {
-      try (var stream = Files.walk(p)) {
-        stream.forEach(
-            path -> {
-              if (path.toString().endsWith(".java")) {
-                out.add(path);
-              }
-            });
-      }
-      return;
-    }
-
-    if (p.toString().endsWith(".java")) {
-      out.add(p);
-    }
-  }
-
-  /**
-   * Formats a compiler diagnostic into {@code file:line:col: message}.
-   *
-   * @param d diagnostic to format.
-   * @return formatted diagnostic string.
-   */
-  private static String formatDiagnostic(Diagnostic<? extends JavaFileObject> d) {
-    String src = (d.getSource() == null) ? "<unknown>" : d.getSource().getName();
-    return src + ":" + d.getLineNumber() + ":" + d.getColumnNumber() + ": " + d.getMessage(null);
-  }
-
-  /**
-   * Finds the nearest ancestor directory (including the file's parent chain) that contains a
-   * pom.xml file.
-   *
-   * <p>If no pom.xml file is found, fallback to the file's immediate parent directory.
-   *
-   * @param file Java source file path.
-   * @return compilation group root for the file.
-   */
-  private static Path findNearestPomRoot(Path file) {
-    Path cur = file.toAbsolutePath().normalize();
-    if (!Files.isDirectory(cur)) {
-      cur = cur.getParent();
-    }
-
-    while (cur != null) {
-      if (Files.exists(cur.resolve("pom.xml")) && Files.isRegularFile(cur.resolve("pom.xml"))) {
-        return cur;
-      }
-      cur = cur.getParent();
-    }
-
-    return file.toAbsolutePath().normalize().getParent();
+  private static CheckRunner newCheckRunner() {
+    AllowlistResolver resolver =
+        new AllowlistResolver(
+            System.getProperty("os.name"), System.getProperty("user.home"), System.getenv());
+    return new CheckRunner(resolver);
   }
 }

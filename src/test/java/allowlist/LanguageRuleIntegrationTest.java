@@ -2,6 +2,7 @@ package allowlist;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import allowlist.cli.CliOptions;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.nio.file.Files;
@@ -19,8 +20,10 @@ public final class LanguageRuleIntegrationTest {
     ByteArrayOutputStream errBuf = new ByteArrayOutputStream();
     PrintStream err = new PrintStream(errBuf);
 
-    return AllowlistChecker.run(
-        new String[] {"--allowlist", allowFile.toString(), f.toString()}, err);
+    CliOptions options =
+        CliOptions.parse(new String[] {"--allowlist", allowFile.toString(), f.toString()});
+
+    return AllowlistChecker.run(options, err);
   }
 
   @Test

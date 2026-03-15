@@ -1,5 +1,6 @@
-package allowlist;
+package allowlist.scan;
 
+import allowlist.AllowlistConfig;
 import com.sun.source.tree.BreakTree;
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.ContinueTree;
@@ -43,7 +44,7 @@ public final class CheckerScanner extends TreePathScanner<Void, Void> {
 
   private boolean inVoidMethod = false;
 
-  CheckerScanner(
+  public CheckerScanner(
       Trees trees,
       Types types,
       Elements elements,

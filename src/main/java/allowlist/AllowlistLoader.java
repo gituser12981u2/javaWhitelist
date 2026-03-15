@@ -113,23 +113,10 @@ public final class AllowlistLoader {
   private static List<String> splitByComma(String s) {
     List<String> out = new ArrayList<>();
 
-    int start = 0;
-    for (int i = 0; i < s.length(); i++) {
-      if (s.charAt(i) == ',') {
-        String part = s.substring(start, i);
-        if (!isBlankOrSpaces(part)) {
-          out.add(part);
-        }
-
-        start = i + 1;
-      }
-    }
-
-    // tail
-    if (start <= s.length()) {
-      String part = s.substring(start);
-      if (!isBlankOrSpaces(part)) {
-        out.add(part);
+    for (String part : s.split(",")) {
+      String trimmed = part.trim();
+      if (!trimmed.isEmpty()) {
+        out.add(trimmed);
       }
     }
 
