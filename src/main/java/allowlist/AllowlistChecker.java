@@ -1,5 +1,10 @@
 package allowlist;
 
+import allowlist.build.CompilationGrouper;
+import allowlist.build.CompilationPlanner;
+import allowlist.build.DefaultCompilationGrouper;
+import allowlist.build.JavacOptionsResolver;
+import allowlist.build.MavenJavacOptionsResolver;
 import allowlist.cli.CliCommand;
 import allowlist.cli.CliOptions;
 import allowlist.cli.CliParser;
@@ -79,6 +84,12 @@ public final class AllowlistChecker {
     AllowlistResolver resolver =
         new AllowlistResolver(
             System.getProperty("os.name"), System.getProperty("user.home"), System.getenv());
-    return new CheckRunner(resolver);
+
+    JavacOptionsResolver javacOptionsResolver = new MavenJavacOptionsResolver();
+    CompilationGrouper compilationGrouper = new DefaultCompilationGrouper();
+    CompilationPlanner compilationPlanner =
+        new CompilationPlanner(compilationGrouper, javacOptionsResolver);
+
+    return new CheckRunner(resolver, compilationPlanner);
   }
 }

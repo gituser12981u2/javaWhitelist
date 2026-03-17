@@ -16,7 +16,7 @@ public final class AllowlistResolver {
     this.env = env;
   }
 
-  public AllowlistConfig resovleAndLoad(String explicitPath, Path projectRoot) throws IOException {
+  public AllowlistConfig resolveAndLoad(String explicitPath, Path projectRoot) throws IOException {
     LoadSource src = resolveSource(explicitPath, projectRoot);
 
     if (src.isFile()) {
