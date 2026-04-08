@@ -6,6 +6,9 @@ import allowlist.cli.CliOptions;
 import allowlist.fs.IgnoreMatcher;
 import allowlist.fs.JavaFileCollector;
 import allowlist.scan.CheckerScanner;
+import allowlist.util.DebugLogger;
+import allowlist.util.DebugLoggers;
+import allowlist.util.DebugTiming;
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.util.JavacTask;
 import com.sun.source.util.Trees;
@@ -49,6 +52,8 @@ public final class CheckRunner {
   private final CompilationPlanner compilationPlanner;
   private final JavaFileCollector javaFileCollector = new JavaFileCollector();
 
+  private static final DebugLogger LOG = DebugLoggers.forClass(CheckRunner.class);
+
   /**
    * Creates a new runner.
    *
@@ -77,14 +82,14 @@ public final class CheckRunner {
    * @throws IOException if file traversal or compiler I/O fails.
    */
   public int run(CliOptions options, PrintStream err) throws IOException {
-    long totalStart = nowNanos();
+    long totalStart = DebugTiming.start();
 
-    long t = nowNanos();
+    long t = DebugTiming.start();
     Path cwd = Paths.get("").toAbsolutePath().normalize();
     IgnoreMatcher ignores = IgnoreMatcher.empty(cwd);
-    debugTiming(err, "init cwd/ignore matcher", t);
+    DebugTiming.log(LOG, "init cwd/ignore matcher", t);
 
-    t = nowNanos();
+    t = DebugTiming.start();
     Path ignoreFile = resolveIgnoreFile(options, cwd);
     if (ignoreFile != null) {
       try {
@@ -94,30 +99,30 @@ public final class CheckRunner {
         return 2;
       }
     }
-    debugTiming(err, "resolve ignore file", t);
+    DebugTiming.log(LOG, "resolve ignore file", t);
 
-    t = nowNanos();
+    t = DebugTiming.start();
     List<Path> javaFiles = javaFileCollector.collect(options.targetPaths());
-    debugTiming(err, "collect java files", t);
+    DebugTiming.log(LOG, "collect java files", t);
 
     if (javaFiles.isEmpty()) {
       err.println("No .java files found in the provided paths.");
       return 2;
     }
 
-    t = nowNanos();
+    t = DebugTiming.start();
     Set<Path> ignoredAbs = computeIgnoredFiles(javaFiles, ignores);
-    debugTiming(err, "compute ignored files", t);
+    DebugTiming.log(LOG, "compute ignored files", t);
 
     List<CompilationPlan> plans;
-    t = nowNanos();
+    t = DebugTiming.start();
     try {
       plans = compilationPlanner.plan(javaFiles);
     } catch (IOException e) {
       err.println("Failed to build compilation plans: " + e.getMessage());
       return 2;
     }
-    debugTiming(err, "build compilation plans", t);
+    DebugTiming.log(LOG, "build compilation plans", t);
 
     if (plans.isEmpty()) {
       err.println("No .java files found after applying ignore rules.");
@@ -134,20 +139,20 @@ public final class CheckRunner {
     boolean hadInternalFailure = false;
 
     for (CompilationPlan plan : plans) {
-      long planStart = nowNanos();
+      long planStart = DebugTiming.start();
 
       boolean planFailed =
           runPlan(compiler, plan, options.allowlistPath(), ignoredAbs, violations, err);
 
-      debugTiming(
-          err, "run plan[" + plan.projectRoot() + ", " + plan.sourceSetKind() + "]", planStart);
+      DebugTiming.log(
+          LOG, "run plan[" + plan.projectRoot() + ", " + plan.sourceSetKind() + "]", planStart);
 
       if (planFailed) {
         hadInternalFailure = true;
       }
     }
 
-    debugTiming(err, "total run", totalStart);
+    DebugTiming.log(LOG, "total run", totalStart);
 
     if (!violations.isEmpty()) {
       for (String violation : violations) {
@@ -181,7 +186,7 @@ public final class CheckRunner {
       Set<Path> ignoredAbs,
       List<String> violations,
       PrintStream err) {
-    long t = nowNanos();
+    long t = DebugTiming.start();
 
     AllowlistConfig config;
     try {
@@ -197,21 +202,21 @@ public final class CheckRunner {
               + e.getMessage());
       return true;
     }
-    debugTiming(err, " allowlist load", t);
+    DebugTiming.log(LOG, " allowlist load", t);
 
     DiagnosticCollector<JavaFileObject> diags = new DiagnosticCollector<>();
     StandardJavaFileManager fm =
         compiler.getStandardFileManager(diags, null, StandardCharsets.UTF_8);
 
     try {
-      t = nowNanos();
+      t = DebugTiming.start();
       Iterable<? extends JavaFileObject> units = fm.getJavaFileObjectsFromPaths(plan.files());
       JavacTask task =
           (JavacTask) compiler.getTask(null, fm, diags, plan.javacOptions(), null, units);
-      debugTiming(err, " javac task setup", t);
+      DebugTiming.log(LOG, " javac task setup", t);
 
       Iterable<? extends CompilationUnitTree> parsed;
-      t = nowNanos();
+      t = DebugTiming.start();
       try {
         parsed = task.parse();
         task.analyze();
@@ -219,13 +224,13 @@ public final class CheckRunner {
         err.println("Failed to parse/analyze sources: " + ex.getMessage());
         return true;
       }
-      debugTiming(err, " javac parse+analyze", t);
+      DebugTiming.log(LOG, " javac parse+analyze", t);
 
       Trees trees = Trees.instance(task);
       Types types = task.getTypes();
       Elements elements = task.getElements();
 
-      t = nowNanos();
+      t = DebugTiming.start();
       for (CompilationUnitTree cu : parsed) {
         JavaFileObject src = cu.getSourceFile();
         if (src != null) {
@@ -241,11 +246,11 @@ public final class CheckRunner {
 
         new CheckerScanner(trees, types, elements, cu, violations, config).scan(cu, null);
       }
-      debugTiming(err, " AST scan", t);
+      DebugTiming.log(LOG, " AST scan", t);
 
-      t = nowNanos();
+      t = DebugTiming.start();
       emitDiagnostics(diags, ignoredAbs, err);
-      debugTiming(err, " emit diagnostics", t);
+      DebugTiming.log(LOG, " emit diagnostics", t);
 
       return false;
     } finally {
@@ -347,17 +352,5 @@ public final class CheckRunner {
   private static String formatDiagnostic(Diagnostic<? extends JavaFileObject> d) {
     String src = (d.getSource() == null) ? "<unknown>" : d.getSource().getName();
     return src + ":" + d.getLineNumber() + ":" + d.getColumnNumber() + ": " + d.getMessage(null);
-  }
-
-  private static long nowNanos() {
-    return System.nanoTime();
-  }
-
-  private static long elapsedMillis(long startNanos) {
-    return (System.nanoTime() - startNanos) / 1_000_000L;
-  }
-
-  private static void debugTiming(PrintStream err, String phase, long startNanos) {
-    err.println("[debug] " + phase + ": " + elapsedMillis(startNanos) + " ms");
   }
 }

@@ -5,7 +5,7 @@ Static analysis CLI for enforcing a restricted Java subset and API allowlist.
 Designed for course environments where certain langauge features
 and library APIs are forbidden.
 
-The default whitelist is setup for UW Seattle's CSE 122.
+The default whitelist is setup for UW Seattle's CSE 12X.
 
 ## Features
 
@@ -41,7 +41,7 @@ iwr -useb https://raw.githubusercontent.com/gituser12981u2/javaWhitelist/main/in
 ## Usage
 
 ```bash
-javaWhitelist [-allowlist allowlist.txt] <paths...>
+javaWhitelist [--allowlist allowlist.txt --ignore .javawhitelistignore] <paths...>
 ```
 
 Example
