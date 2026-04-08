@@ -1,4 +1,4 @@
-package allowlist;
+package allowlist.fs;
 
 import java.io.IOException;
 import java.nio.file.FileSystem;

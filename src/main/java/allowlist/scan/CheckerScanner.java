@@ -1,5 +1,6 @@
-package allowlist;
+package allowlist.scan;
 
+import allowlist.AllowlistConfig;
 import com.sun.source.tree.BreakTree;
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.ContinueTree;
@@ -43,7 +44,7 @@ public final class CheckerScanner extends TreePathScanner<Void, Void> {
 
   private boolean inVoidMethod = false;
 
-  CheckerScanner(
+  public CheckerScanner(
       Trees trees,
       Types types,
       Elements elements,
@@ -62,14 +63,10 @@ public final class CheckerScanner extends TreePathScanner<Void, Void> {
   @Override
   public Void visitImport(ImportTree node, Void p) {
     if (config.requireWildcardImports()) {
-      if (node.isStatic()) {
-        addViolation(node, "Static imports are not allowed.");
-      } else {
-        String q = node.getQualifiedIdentifier().toString();
-        boolean isWildcard = q.endsWith(".*");
-        if (!isWildcard) {
-          addViolation(node, "Non-wildcard import is not allowed: import " + q + ";");
-        }
+      String q = node.getQualifiedIdentifier().toString();
+      boolean isWildcard = q.endsWith(".*");
+      if (!isWildcard) {
+        addViolation(node, "Non-wildcard import is not allowed: import " + q + ";");
       }
     }
 

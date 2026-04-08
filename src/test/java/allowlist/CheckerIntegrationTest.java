@@ -3,6 +3,7 @@ package allowlist;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import allowlist.cli.CliOptions;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.nio.file.Files;
@@ -39,8 +40,10 @@ public final class CheckerIntegrationTest {
     ByteArrayOutputStream errBuf = new ByteArrayOutputStream();
     PrintStream err = new PrintStream(errBuf);
 
-    int code =
-        AllowlistChecker.run(new String[] {"--allowlist", allowFile.toString(), f.toString()}, err);
+    CliOptions options =
+        CliOptions.parse(new String[] {"--allowlist", allowFile.toString(), f.toString()});
+
+    int code = AllowlistChecker.run(options, err);
 
     assertEquals(0, code, "Expected success for whitelisted program. stderr:\n" + errBuf);
   }
@@ -72,8 +75,10 @@ public final class CheckerIntegrationTest {
     ByteArrayOutputStream errBuf = new ByteArrayOutputStream();
     PrintStream err = new PrintStream(errBuf);
 
-    int code =
-        AllowlistChecker.run(new String[] {"--allowlist", allowFile.toString(), f.toString()}, err);
+    CliOptions options =
+        CliOptions.parse(new String[] {"--allowlist", allowFile.toString(), f.toString()});
+
+    int code = AllowlistChecker.run(options, err);
 
     assertEquals(1, code, "Expected violation exit code. stderr:\n" + errBuf);
     assertTrue(
@@ -121,15 +126,15 @@ public final class CheckerIntegrationTest {
     ByteArrayOutputStream errBuf = new ByteArrayOutputStream();
     PrintStream err = new PrintStream(errBuf);
 
-    int code =
-        AllowlistChecker.run(
+    CliOptions options =
+        CliOptions.parse(
             new String[] {
               "--allowlist", allowFile.toString(), "--ignore", ignore.toString(), dir.toString()
-            },
-            err);
+            });
+
+    int code = AllowlistChecker.run(options, err);
 
     assertEquals(0, code, "Expected success because Bad.java is ignored. stderr:\n" + errBuf);
-    // assertTrue(!errBuf.toString().contains("Bad.java"), "stderr should not
-    // mention ignored file");
+    assertTrue(!errBuf.toString().contains("Bad.java"), "stderr should not mention ignored file");
   }
 }
